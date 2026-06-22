@@ -12,6 +12,7 @@ models/
 *.geojson
 *.png
 evaluation_report*.txt
+report.html
 
 # --- Run logs ---
 *.log
