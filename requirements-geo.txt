@@ -1,0 +1,9 @@
+# GDAL — needed by prepare_data(_multi).py, predict.py, evaluate.py,
+# detect_herds.py (raster input) and make_tiles.py. NOT needed by train.py.
+#
+# Already installed on PeterAI's ~/ml/.venv (gdal 3.12.2, matching system
+# libgdal). To reinstall elsewhere (one-time, needs sudo):
+#
+#     sudo apt-get install -y gdal-bin libgdal-dev
+#     uv pip install "gdal==$(gdal-config --version)"
+gdal

@@ -1,0 +1,8 @@
+# TF_CowDetection — core ML stack (Linux / GPU), matches PeterAI ~/ml/.venv.
+# numpy / keras / h5py come in with tensorflow.
+tensorflow[and-cuda]==2.21.0
+scikit-learn      # DBSCAN in detect_herds.py
+scipy             # ndimage / ConvexHull in detect_herds.py, make_tiles.py
+pillow            # PNG tiles in make_tiles.py
+psutil
+matplotlib

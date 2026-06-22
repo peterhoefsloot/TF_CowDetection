@@ -1,0 +1,24 @@
+# --- Large data & imagery (not versioned) ---
+source/
+data/
+tiles/
+*.tif
+*.tif.aux.xml
+
+# --- Trained models & metadata (derived artifacts) ---
+models/
+
+# --- Generated outputs ---
+*.geojson
+*.png
+evaluation_report*.txt
+
+# --- Run logs ---
+*.log
+*_run*.log
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
