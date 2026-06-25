@@ -122,6 +122,7 @@ class CleanProgress(keras.callbacks.Callback):
             f"loss={self._get(logs, 'loss')}  "
             f"val_loss={self._get(logs, 'val_loss')}  "
             f"val_f1={self._get(logs, 'val_f1')}  "
+            f"val_f2={self._get(logs, 'val_f2')}  "
             f"val_recall={self._get(logs, 'val_recall')}  "
             f"val_precision={self._get(logs, 'val_precision')}",
             flush=True,
@@ -195,13 +196,16 @@ def combined_loss(focal_alpha: float = 0.75, focal_gamma: float = 2.0,
     return loss_fn
 
 
-class F1Score(keras.metrics.Metric):
-    """Streaming per-pixel F1 at a fixed threshold — used for checkpoint /
-    early-stopping selection so we optimize the precision-recall balance
-    rather than recall alone (which is trivially maxed by over-predicting)."""
+class FBetaScore(keras.metrics.Metric):
+    """Streaming per-pixel F-beta at a fixed threshold — used for checkpoint /
+    early-stopping selection. beta=1 is F1 (precision-recall balance); beta>1
+    (e.g. 2) weights recall higher, which suits our recall-critical counting
+    (val_f1 selection was found to trade scene-wide recall away)."""
 
-    def __init__(self, threshold: float = 0.5, name: str = "f1", **kwargs):
+    def __init__(self, beta: float = 1.0, threshold: float = 0.5,
+                 name: str = "f1", **kwargs):
         super().__init__(name=name, **kwargs)
+        self.beta = beta
         self.threshold = threshold
         self.tp = self.add_weight(name="tp", initializer="zeros")
         self.fp = self.add_weight(name="fp", initializer="zeros")
@@ -217,11 +221,19 @@ class F1Score(keras.metrics.Metric):
     def result(self):
         precision = self.tp / (self.tp + self.fp + 1e-7)
         recall = self.tp / (self.tp + self.fn + 1e-7)
-        return 2.0 * precision * recall / (precision + recall + 1e-7)
+        b2 = self.beta * self.beta
+        return (1.0 + b2) * precision * recall / (b2 * precision + recall + 1e-7)
 
     def reset_state(self):
         for v in self.variables:
             v.assign(0.0)
+
+
+class F1Score(FBetaScore):
+    """Back-compat alias: F-beta with beta=1."""
+
+    def __init__(self, threshold: float = 0.5, name: str = "f1", **kwargs):
+        super().__init__(beta=1.0, threshold=threshold, name=name, **kwargs)
 
 
 # ---------------------------------------------------------------------------
@@ -292,6 +304,7 @@ def build_unet(patch_size: int, num_bands: int, tversky_beta: float = 0.7) -> ke
             keras.metrics.Precision(name="precision"),
             keras.metrics.Recall(name="recall"),
             F1Score(name="f1"),
+            FBetaScore(beta=2.0, name="f2"),
         ],
     )
     return model
@@ -343,6 +356,10 @@ def parse_args() -> argparse.Namespace:
                          "patience 8 -> val_f1 0.78 but scene F1 0.84 / recall 0.77). The "
                          "val_f1@0.5 monitor is precision-leaning, so longer training trades "
                          "recall away. Fix the monitor (F2/F-beta), not the patience.")
+    p.add_argument("--checkpoint-metric", choices=["f1", "f2"], default="f1",
+                    help="Validation metric for EarlyStopping + ModelCheckpoint selection. "
+                         "f1 = precision-recall balance (default); f2 = recall-leaning, "
+                         "selects higher-recall epochs (better for scene-wide counting).")
     return p.parse_args()
 
 
@@ -502,16 +519,18 @@ def main() -> int:
     backup_existing_model(model_path)
 
     # --- Train ---
+    sel_monitor = f"val_{args.checkpoint_metric}"
+    print(f"Selection metric : {sel_monitor} (EarlyStopping + checkpoint)")
     callbacks = [
         keras.callbacks.EarlyStopping(
-            monitor="val_f1", patience=args.patience, restore_best_weights=True, mode="max"
+            monitor=sel_monitor, patience=args.patience, restore_best_weights=True, mode="max"
         ),
         keras.callbacks.ReduceLROnPlateau(
             monitor="val_loss", factor=0.5, patience=4, min_lr=1e-6
         ),
         keras.callbacks.ModelCheckpoint(
             filepath=model_path,
-            monitor="val_f1",
+            monitor=sel_monitor,
             save_best_only=True,
             mode="max",
             verbose=1,
