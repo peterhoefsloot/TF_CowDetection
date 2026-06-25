@@ -29,6 +29,7 @@ from tensorflow import keras
 from osgeo import gdal
 
 import ndvi_util
+import run_logging
 
 gdal.UseExceptions()
 
@@ -73,6 +74,7 @@ def find_band_files(image_dir: str) -> list[str]:
 
 def main() -> int:
     args = parse_args()
+    run_logging.setup_tee("predict")
     print("=" * 60)
     print("  TF_CowDetection  |  PREDICTION (U-Net)")
     print("=" * 60)

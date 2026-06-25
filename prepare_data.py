@@ -25,6 +25,7 @@ import numpy as np
 from osgeo import gdal, ogr
 
 import ndvi_util
+import run_logging
 
 gdal.UseExceptions()
 
@@ -81,6 +82,7 @@ def make_circle_mask(radius: int) -> np.ndarray:
 
 def main() -> int:
     args = parse_args()
+    run_logging.setup_tee("prepare_data")
     print("=" * 60)
     print("  TF_CowDetection  |  PREPARE DATA")
     print("=" * 60)

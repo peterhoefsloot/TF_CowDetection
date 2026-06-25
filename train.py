@@ -30,6 +30,8 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
 
+import run_logging
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 EXTERNAL_DIR = os.environ.get("TF_COWDETECT_ROOT", HERE)
 DATA_DIR = os.path.join(EXTERNAL_DIR, "data")
@@ -339,10 +341,13 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
+    run_logging.setup_tee("train")
     print("=" * 60)
     print("  TF_CowDetection  |  TRAINING (U-Net)")
     print("=" * 60)
     os.makedirs(MODELS_DIR, exist_ok=True)
+    run_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    tb_logdir = os.path.join(EXTERNAL_DIR, "runs", run_ts)
 
     print(f"TensorFlow : {tf.__version__}   Keras : {keras.__version__}")
     print(f"GPUs       : {tf.config.list_physical_devices('GPU') or 'none (CPU)'}")
@@ -504,8 +509,11 @@ def main() -> int:
             mode="max",
             verbose=1,
         ),
+        keras.callbacks.TensorBoard(log_dir=tb_logdir, update_freq="epoch"),
         CleanProgress(total_epochs=args.epochs, update_every_sec=5.0),
     ]
+    print(f"[tensorboard] logging to {tb_logdir}")
+    print(f"[tensorboard] view: tensorboard --logdir {os.path.join(EXTERNAL_DIR, 'runs')}  -> http://localhost:6006")
 
     t0 = time.time()
     history = model.fit(

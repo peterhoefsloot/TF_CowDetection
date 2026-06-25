@@ -14,9 +14,11 @@ models/
 evaluation_report*.txt
 report*.html
 
-# --- Run logs ---
+# --- Run logs & TensorBoard event files ---
 *.log
 *_run*.log
+logs/
+runs/
 
 # --- Python ---
 __pycache__/
