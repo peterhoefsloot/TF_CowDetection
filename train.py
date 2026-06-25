@@ -336,6 +336,9 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--data-dir", default=DATA_DIR, help="Directory with patches.npy / masks.npy")
     p.add_argument("--max-memory-pct", type=float, default=80.0,
                     help="Abort if system memory exceeds this %%")
+    p.add_argument("--patience", type=int, default=8,
+                    help="EarlyStopping patience on val_f1 (epochs without improvement). "
+                         "Set very high to effectively disable early stopping.")
     return p.parse_args()
 
 
@@ -497,7 +500,7 @@ def main() -> int:
     # --- Train ---
     callbacks = [
         keras.callbacks.EarlyStopping(
-            monitor="val_f1", patience=8, restore_best_weights=True, mode="max"
+            monitor="val_f1", patience=args.patience, restore_best_weights=True, mode="max"
         ),
         keras.callbacks.ReduceLROnPlateau(
             monitor="val_loss", factor=0.5, patience=4, min_lr=1e-6
