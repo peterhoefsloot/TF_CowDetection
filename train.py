@@ -338,7 +338,11 @@ def parse_args() -> argparse.Namespace:
                     help="Abort if system memory exceeds this %%")
     p.add_argument("--patience", type=int, default=8,
                     help="EarlyStopping patience on val_f1 (epochs without improvement). "
-                         "Set very high to effectively disable early stopping.")
+                         "NB: raising this HURT scene-wide F1 in a 25-jun-2026 experiment "
+                         "(patience 15 -> val_f1 0.81 but scene F1 0.78 / recall 0.65, vs "
+                         "patience 8 -> val_f1 0.78 but scene F1 0.84 / recall 0.77). The "
+                         "val_f1@0.5 monitor is precision-leaning, so longer training trades "
+                         "recall away. Fix the monitor (F2/F-beta), not the patience.")
     return p.parse_args()
 
 
