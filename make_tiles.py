@@ -64,40 +64,54 @@ def main() -> int:
     t0 = time.time()
     ts = args.tile_size
 
-    # --- Read RGB image ---
+    # --- Open RGB bands (read tile-by-tile, not all at once) ---
+    # The full scene is pulled windowed per tile so peak RAM stays at a few MB
+    # instead of holding the whole ~16 GB float32 stack. Band/dataset handles are
+    # kept open for the duration; the per-tile reads happen in the loop below.
+    rgb_datasets = []  # keep dataset handles alive so the band handles stay valid
     if args.image:
         print(f"Reading multi-band image: {args.image}")
         ds0 = gdal.Open(args.image, gdal.GA_ReadOnly)
+        n_bands = ds0.RasterCount
+        rgb_bands = [ds0.GetRasterBand(b) for b in range(1, 4)]  # first 3 bands as RGB
+        rgb_datasets.append(ds0)
         gt = ds0.GetGeoTransform()
         w, h = ds0.RasterXSize, ds0.RasterYSize
-        n_bands = ds0.RasterCount
         print(f"Image: {w}x{h}, {n_bands} bands")
-        # Use first 3 bands as RGB
-        rgb = []
-        for b in range(1, 4):
-            rgb.append(ds0.GetRasterBand(b).ReadAsArray().astype(np.float32))
     else:
-        print("Reading separate RGB band files ...")
-        rgb = []
+        print("Opening separate RGB band files ...")
+        rgb_bands = []
         ds0 = None
         for suffix in BAND_SUFFIXES:
             path = find_band_file(args.image_dir, suffix)
             ds = gdal.Open(path, gdal.GA_ReadOnly)
             if ds0 is None:
                 ds0 = ds
-            rgb.append(ds.GetRasterBand(1).ReadAsArray().astype(np.float32))
+            rgb_datasets.append(ds)
+            rgb_bands.append(ds.GetRasterBand(1))
         gt = ds0.GetGeoTransform()
         w, h = ds0.RasterXSize, ds0.RasterYSize
         print(f"Image: {w}x{h}")
 
-    # Stack and normalize to 0-255 for display
-    rgb_raw = np.stack(rgb, axis=-1)  # (H, W, 3) — keep raw for nodata check
-    rgb = rgb_raw.copy()
-    for c in range(3):
-        p2, p98 = np.percentile(rgb[:, :, c], [2, 98])
-        if p98 > p2:
-            rgb[:, :, c] = np.clip((rgb[:, :, c] - p2) / (p98 - p2) * 255, 0, 255)
-    rgb = rgb.astype(np.uint8)
+    def read_rgb_window(x0, y0, win_w, win_h):
+        """Read a windowed (win_h, win_w, 3) float32 RGB block from the source bands."""
+        out = np.empty((win_h, win_w, 3), dtype=np.float32)
+        for i, band in enumerate(rgb_bands):
+            out[:, :, i] = band.ReadAsArray(x0, y0, win_w, win_h)
+        return out
+
+    # Global 2/98 percentile display stretch, computed once from a decimated read
+    # (nearest-subsampled = an unbiased pixel sample) — visually identical to the
+    # exact full-res stretch but at a few hundred MB instead of ~16 GB.
+    print("Computing display stretch (decimated sample) ...")
+    decim = max(1, max(w, h) // 4096)
+    sw, sh = max(1, w // decim), max(1, h // decim)
+    stretch = []
+    for band in rgb_bands:
+        sample = band.ReadAsArray(buf_xsize=sw, buf_ysize=sh).astype(np.float32)
+        p2, p98 = np.percentile(sample, [2, 98])
+        stretch.append((float(p2), float(p98)))
+    del sample
 
     # --- Read probability raster ---
     probs = None
@@ -132,6 +146,8 @@ def main() -> int:
     tiles_index = []
     count = 0
 
+    HALO = 4  # extra margin so the nodata border-check window stays in-bounds
+
     for row in range(n_rows):
         for col in range(n_cols):
             r_start = row * ts
@@ -139,8 +155,19 @@ def main() -> int:
             r_end = min(r_start + ts, h)
             c_end = min(c_start + ts, w)
 
-            # Extract tile
-            tile_rgb = rgb[r_start:r_end, c_start:c_end, :]
+            # Read this tile (plus a small halo) straight from disk
+            hy0, hx0 = max(0, r_start - HALO), max(0, c_start - HALO)
+            hy1, hx1 = min(h, r_end + HALO), min(w, c_end + HALO)
+            raw_halo = read_rgb_window(hx0, hy0, hx1 - hx0, hy1 - hy0)
+
+            # Apply the global display stretch, then crop to the core tile region
+            disp = raw_halo.copy()
+            for c in range(3):
+                p2, p98 = stretch[c]
+                if p98 > p2:
+                    disp[:, :, c] = np.clip((disp[:, :, c] - p2) / (p98 - p2) * 255, 0, 255)
+            disp = disp.astype(np.uint8)
+            tile_rgb = disp[r_start - hy0:r_end - hy0, c_start - hx0:c_end - hx0, :]
 
             # Pad if at edge
             th, tw = tile_rgb.shape[:2]
@@ -166,7 +193,7 @@ def main() -> int:
                     gy1 = min(h, r_start + local_r + r_check + 1)
                     gx0 = max(0, c_start + local_c - r_check)
                     gx1 = min(w, c_start + local_c + r_check + 1)
-                    patch_raw = rgb_raw[gy0:gy1, gx0:gx1, :]
+                    patch_raw = raw_halo[gy0 - hy0:gy1 - hy0, gx0 - hx0:gx1 - hx0, :]
                     is_border = float(patch_raw.max()) == 0
 
                     tile_cows.append((local_c, local_r, is_border))
