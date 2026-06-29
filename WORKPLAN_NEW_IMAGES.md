@@ -27,42 +27,60 @@ score the model; background points suppress false positives.
 3. Copy the **same** imagery to Sperwer for ground-truthing.
 4. Sanity-check each scene: **4 bands, CRS EPSG:4326, ~30 cm**. CRS matters —
    ground-truth points are matched to scenes by geographic overlap, so a CRS
-   mismatch silently drops every point.
+   mismatch silently drops every point. (The editor's GeoJSON output is already
+   EPSG:4326 lon/lat — verified against the Sperwer samples — so no reprojection
+   is needed on the label side.)
 
 ## Phase 1 — Ground-truthing (Sperwer)
 
 1. Operators digitize cattle (`Color=1`) and a sample of clear background
    (`Color=0`) for each image in the HTML editor.
-2. One GeoJSON per image. **Highest-value annotations: solitary cows on bare /
-   low-NDVI ground** — that is the current model's known weak spot, so prioritise
-   labelling those.
+2. One GeoJSON per image, named after the scene, e.g.
+   `SkyFi_Sector3_2_2513WR37-2_2023-12-02_epsg4326.geojson`. **Highest-value
+   annotations: solitary cows on bare / low-NDVI ground** — that is the current
+   model's known weak spot, so prioritise labelling those.
 3. Return all per-image GeoJSONs to this box.
+
+**Editor output schema** (confirmed from Sperwer samples copied locally to
+`examples/ground_truth/` — gitignored, not pushed):
+each feature is a `Point` with properties
+`{id, Color (1=cow / 0=non-cow), Class ("cow"/"non-cow"), Source ("point_digitizer"), Image (<scene name>)}`,
+coordinates in **EPSG:4326 lon/lat** (no `crs` member → GeoJSON default WGS84).
+The pipeline keys on `Color`. Note a freshly-opened image can come back **empty**
+(0 features) if it wasn't digitized — the merge step below just skips those.
 
 ## Phase 2 — Consolidate ground truth (this box)
 
 `prepare_data_multi` and `evaluate` each take **one** `--labels` file, matched to
 scenes by spatial overlap. So merge the per-image GeoJSONs into one master file.
 
-1. Drop each scene's GeoJSON next to its imagery, e.g.
-   `source/scenes/<scene_name>/truth.geojson`.
-2. Merge them into one combined ground-truth file:
+1. Collect the per-image GeoJSONs returned from Sperwer into one folder, e.g.
+   `source/terrain_truth/incoming/` (the editor names them
+   `<scene>_epsg4326.geojson`). Each point already carries its scene in the
+   `Image` property, so attribution doesn't depend on filenames.
+2. Merge them into one combined ground-truth file (empty files are skipped):
    ```bash
    cd ~/TF_CowDetection
    ~/ml/.venv/bin/python - <<'PY'
    import json, glob, os
    out = {"type": "FeatureCollection", "features": []}
-   for f in sorted(glob.glob("source/scenes/*/truth.geojson")):
+   for f in sorted(glob.glob("source/terrain_truth/incoming/*.geojson")):
        fc = json.load(open(f))
-       out["features"] += fc.get("features", [])
-       print(f"{f}: {len(fc.get('features', []))} pts")
+       feats = fc.get("features", [])
+       print(f"{os.path.basename(f)}: {len(feats)} pts" + (" (empty, skipped)" if not feats else ""))
+       out["features"] += feats
    dst = "source/terrain_truth/GroundTruth_combined.geojson"
    os.makedirs(os.path.dirname(dst), exist_ok=True)
    json.dump(out, open(dst, "w"))
    print(f"-> {dst}: {len(out['features'])} total")
    PY
    ```
-3. Verify the merged points sit on EPSG:4326 lon/lat (same CRS as the imagery).
-   If the editor emits pixel coordinates, reproject before merging.
+   Dry-run it now against the local samples by pointing the glob at
+   `examples/ground_truth/*.geojson` (verified: 76 features merged, the 1 empty
+   scene skipped automatically).
+3. The merged points are EPSG:4326 lon/lat (same CRS as the imagery) — confirmed
+   for the editor's output, so no reprojection is needed. If a future source ever
+   emits a different CRS, reproject before merging.
 
 ## Phase 3 — Evaluate the **current** model on the new scenes (baseline)
 
@@ -151,7 +169,9 @@ NDVI 5th channel automatically — only the 4 raw bands need to be on disk.)
 
 ## Gotchas
 
-- **CRS**: incoming GeoJSONs must be EPSG:4326 lon/lat, or spatial matching drops points.
+- **CRS**: incoming GeoJSONs must be EPSG:4326 lon/lat (the editor's output already is), or spatial matching drops points.
+- **Empty labels**: an un-digitized image returns a valid GeoJSON with 0 features — the merge skips it; don't mistake it for an error.
+- **Sperwer access**: `100.122.176.20` over Tailscale, SMB admin share `d$` (editor + samples live in `d:\tf_cowdetection\tiles`). `curl`'s SMBv1 is refused by Windows; use an SMB2/3 client (`uv run --with smbprotocol …`, or `gio mount`).
 - **NDVI**: model is 5-band; always train with `--spectral-bands 4`. `predict` rebuilds NDVI itself.
 - **Don't raise `--patience`**; per-patch `val_f1` is anti-correlated with the scene-wide recall that matters.
 - **Threshold 0.2** is the production operating point.
