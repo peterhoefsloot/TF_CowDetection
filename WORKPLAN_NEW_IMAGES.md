@@ -7,7 +7,7 @@ validated model. A delivery is normally **several scenes** at once.
 
 | Machine | Role |
 |---|---|
-| **Sperwer** (Windows) | Holds a copy of the GeoTIFFs. The OpenLayers/HTML editor lives here. Operators **manually digitize** cattle into a GeoJSON per image — this is the **ground-truthing** phase. Each point is tagged `Color=1` (cattle) or `Color=0` (background). |
+| **Sperwer** (Windows) | Holds a copy of the GeoTIFFs. The OpenLayers/HTML editor lives here. Operators **manually digitize** cattle into a GeoJSON per image — this is the **ground-truthing** phase. Each point is tagged `Color=1` (cattle) or `Color=0` (background). Reachable over **Tailscale at `100.122.176.20`**. |
 | **This box** (PeterAI, Ubuntu, RTX 5090) | Inference + evaluation + retraining. No editor/viewer here anymore. |
 
 The editor's GeoJSONs are **input** to this box, not output. Cattle points train and
