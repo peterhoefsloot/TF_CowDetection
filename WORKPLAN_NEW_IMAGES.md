@@ -54,10 +54,15 @@ The pipeline keys on `Color`. Note a freshly-opened image can come back **empty*
 `prepare_data_multi` and `evaluate` each take **one** `--labels` file, matched to
 scenes by spatial overlap. So merge the per-image GeoJSONs into one master file.
 
-1. Collect the per-image GeoJSONs returned from Sperwer into one folder, e.g.
-   `source/terrain_truth/incoming/` (the editor names them
-   `<scene>_epsg4326.geojson`). Each point already carries its scene in the
-   `Image` property, so attribution doesn't depend on filenames.
+1. Pull the per-image GeoJSONs straight off Sperwer into
+   `source/terrain_truth/incoming/`:
+   ```bash
+   SMB_PASS=... ./pull_groundtruth.sh          # or omit SMB_PASS to be prompted
+   ./pull_groundtruth.sh --list                # preview what's on Sperwer first
+   ```
+   It grabs `SkyFi_*_epsg4326.geojson` by default (override with `--pattern`).
+   The editor names files `<scene>_epsg4326.geojson`, and each point also carries
+   its scene in the `Image` property, so attribution doesn't depend on filenames.
 2. Merge them into one combined ground-truth file (empty files are skipped):
    ```bash
    cd ~/TF_CowDetection
@@ -161,6 +166,7 @@ NDVI 5th channel automatically — only the 4 raw bands need to be on disk.)
 
 | Step | Command |
 |---|---|
+| Pull ground truth from Sperwer | `SMB_PASS=... ./pull_groundtruth.sh` (`--list` to preview) |
 | Predict (per scene) | `./predict.sh --image-dir <scene> --output <out>.tif --save-probs` |
 | Evaluate | `./evaluate.sh --predicted <out>.tif --probs <out>_probs.tif --labels <truth>.geojson` |
 | Build training patches | `./prepare_data_multi.sh --scene-dirs source/scenes/* --labels <combined>.geojson` |
