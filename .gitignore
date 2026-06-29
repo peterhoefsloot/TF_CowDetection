@@ -1,6 +1,7 @@
 # --- Large data & imagery (not versioned) ---
 source/
 data/
+examples/
 *.tif
 *.tif.aux.xml
 
